@@ -8,24 +8,31 @@ function Use-Impersonation {
         which restores the context back to the calling Windows Principal.
 
         The function is meant to emulate a C# using block by automatically disposing the Impersonation object.
-    .PARAMETER Credential
-        PSCredential object to be passed to the Impersonation object.
-        
-        This parameter is a member of the Credential parameter set and can be used positionally.
-    .PARAMETER LogonType
-        PowerShell.SimpleImpersonation.LogonType object to be passed to the Impersonation object. The argument specified
-        to this parameter can be coerced from a string. 
-        
-        This parameter is a member of the Credential Parameter Set and can be used positionally.
-    .PARAMETER ScriptBlock
-        ScriptBlock object to be executed under the context of the supplied Windows Principal.
-        
-        This parameter is a member of all parameter sets and can be used positionally.
-    .PARAMETER LogonUserArguments
+    .PARAMETER ArgumentList
         List of arguments to be passed to the Impersonation object.
         
-        This parameter is designed to simulate the C# using syntax when using SimpleImpersonation.Impersonation.
-        This parameter is a member of the ArgumentList parameter set and must be passed as a named parameter.
+        This parameter is designed to simulate the C# using keyword syntax with SimpleImpersonation.Impersonation.
+        This parameter accepts multiple parameter signatures, determined by the argument count and object types.
+
+        Parameter Signatures:
+            (PSCredential credential, PowerShell.SimpleImpersonation.LogonType logonType)
+            (string domain, string userName, SecureString password, PowerShell.SimpleImpersonation.LogonType logonType)
+            (string domain, string userName, string password, PowerShell.SimpleImpersonation.LogonType logonType)
+            
+        Type transformation will be attempted if specifying a string as the PSCredential credential argument.  
+    .PARAMETER ScriptBlock
+        ScriptBlock object to be executed under the context of the supplied Windows Principal. Mandatory with all parameter sets.
+        
+        This parameter  can be used positionally or as a named parameter argument.
+    .PARAMETER Credential
+        PSCredential object to be passed to the Impersonation object. Mandatory with Named parameter set.
+        
+        This parameter is available as a named parameter when ArgumentList is not specified.
+    .PARAMETER LogonType
+        PowerShell.SimpleImpersonation.LogonType object to be passed to the Impersonation object. The argument specified
+        to this parameter can be coerced from a string. Mandatory with Named parameter set.
+        
+        This parameter is available as a named parameter when ArgumentList is not specified.
     .EXAMPLE
         PS C:\> Use-Impersonation -Credential DOMAIN\user -LogonType Batch {     
             sqlps
@@ -38,40 +45,90 @@ function Use-Impersonation {
         The Credential and LogonType parameters in this example are passed as named arguments, which is required for the parameter set.
         The code will perform an NewCredentials logon as user, DOMAIN\user, and then execute the specified ScriptBlock.  
     .EXAMPLE
-        PS C:\> Use-Impersonation -LogonUserArguments ('DOMAIN', 'user', 'password', 'Interactive') { 
+        PS C:\> Use-Impersonation ('DOMAIN', 'user', 'password', 'Interactive') { 
             "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
         }
 
-        This example demonstrates supplying the required arguments, in the form of an array and Scriptblock,
-        as positional arguments. The code will perform an Interactive logon as user, DOMAIN\user, and then execute 
-        the specified ScriptBlock. The context will be restored to the caller Windows Principal following completion.
+        This example demonstrates supplying the required arguments, in the form of an array to ArgumentList, and Scriptblock as positional arguments.
+        Since there are four options included in the specified array, the Parameter Signature using clear text credentials is selected.
+        The code will perform an Interactive logon as user, DOMAIN\user, and then execute the specified ScriptBlock. 
+        The context will be restored to the caller Windows Principal following completion.
+    .EXAMPLE
+        PS C:\> Use-Impersonation ('DOMAIN\user', 'Interactive') { 
+            "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        }
 
-        The parameter also includes alias ArgumentList.
+        This example demonstrates supplying the required arguments, in the form of an array to ArgumentList, and Scriptblock as positional arguments.
+        Since there are twp options included in the specified array, the Parameter Signature using a PSCredential is selected.
+        If the first option to ArgumentList is a string, a credential will try to be obtained with a prompt. 
+        The code will perform an Interactive logon as user, DOMAIN\user, and then execute the specified ScriptBlock. 
+        The context will be restored to the caller Windows Principal following completion.
     #>
-    [CmdletBinding(DefaultParameterSetName = 'Credential')]
+    [CmdletBinding(DefaultParameterSetName = 'ArgumentList')]
     param (
-        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'Credential')]
-        [System.Management.Automation.PSCredential]
-        [System.Management.Automation.Credential()] $Credential,
+        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'ArgumentList')]
+        [object[]] $ArgumentList,
 
-        [Parameter(Mandatory = $true, Position = 1, ParameterSetName = 'Credential')]
-        [object] $LogonType,
-
-        [Parameter(Mandatory = $true, Position = 2, ParameterSetName = 'Credential')]
-        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'LogonUserArguments')]
+        [Parameter(Mandatory = $true, Position = 1)]
         [scriptblock] $ScriptBlock,
 
-        [Parameter(Mandatory = $true, ParameterSetName = 'LogonUserArguments')]
-        [Alias('ArgumentList')]
-        [array] $LogonUserArguments
-    )
+        [Parameter(Mandatory = $true, ParameterSetName = 'Named')]
+        [ValidateSet('Interactive', 'Network', 'Batch', 'Service', 'Unlock', 'NetworkCleartext', 'NewCredentials')]
+        $LogonType,
 
-    if ($PSCmdlet.ParameterSetName -eq 'ArgumentList' -and $ArgumentList.Count -ne 4) {
-        throw New-Object ArgumentException(
-            'Invalid arguent specified. Signature: (string Domain, string UserName, string Password, LogonType LogonType)', 
-            'ArgumentList'
-        )
+        [Parameter(Mandatory = $true, ParameterSetName = 'Named')]
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()] $Credential
+    )
+    #region Custom Parameter Validation
+    #### The custom parameter set we are trying to achieve will not work with built-in ParameterValidation
+    #### But we can manually parse the input to make determinations about which parameter set is desired.
+    if ($PSCmdlet.ParameterSetName -eq 'ArgumentList') {
+        if ($ArgumentList.Count -eq 2) {
+            #### ArgumentList Signature: 
+            #### [0]   PSCredential  domain
+            #### [1]   LogonType     logonType
+            if (([System.Management.Automation.PSCredential], [string]) -contains $ArgumentList[0].GetType()) {
+                #### The Credential() attribute declaration will treat this like it was an original 
+                #### command line parameter argument, even when it is a member of a different parameter set.
+                $Credential = $ArgumentList[0]
+            }
+            if ($null -eq $Credential) {
+                throw New-Object System.Management.Automation.ParameterBindingException(
+                    "Cannot process argument transformation on parameter 'Credential': $($ArgumentList[0])"
+                )
+            }
+            
+            $LogonType = $ArgumentList[1]
+        
+        } elseif ($ArgumentList.Count -eq 4) {
+            #### ArgumentList Signature: 
+            #### [0]   string        domain
+            #### [1]   string        userName
+            #### [2]   SecureString  password  or  string password
+            #### [3]   LogonType     logonType
+            $password = if ($ArgumentList[2] -is [System.Security.SecureString]) {
+                $ArgumentList[2]
+            } elseif ($ArgumentList[2] -is [string]) {
+                $ArgumentList[2] | ConvertTo-SecureString -AsPlainText -Force
+            }
+            $Credential = New-Object System.Management.Automation.PSCredential(
+                ('{0}\{1}' -f $ArgumentList[0], $ArgumentList[1]), #### string        userName
+                $password                                           #### SecureString  password
+            )
+            
+            $LogonType = $ArgumentList[3]
+        } else {
+            throw New-Object ArgumentException(
+                ("Specified data object does not match any available signtures:`r`n" + 
+                    "    (PSCredential credential)`r`n" + 
+                    "    (string domain, string userName, SecureString password)`r`n" + 
+                    "    (string domain, string userName, string password)"),
+                'ArgumentList'
+            )
+        }
     }
+    #endregion Custom Parameter Validation
 
     #region Type Loading
     try {
@@ -128,13 +185,6 @@ namespace PowerShell.SimpleImpersonation
             CompleteImpersonation(success, token, out _handle, out _context);
         }
 
-        private Impersonation(string domain, string username, string password, LogonType logonType)
-        {
-            IntPtr token;
-            bool success = NativeMethods.LogonUser(username, domain, password, (int)logonType, 0, out token);
-            CompleteImpersonation(success, token, out _handle, out _context);
-        }
-
         private void CompleteImpersonation(bool success, IntPtr token, out SafeTokenHandle handle, out WindowsImpersonationContext context)
         {
             if (!success)
@@ -171,9 +221,6 @@ namespace PowerShell.SimpleImpersonation
     internal class NativeMethods
     {
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        internal static extern bool LogonUser(String lpszUsername, String lpszDomain, String lpszPassword, int dwLogonType, int dwLogonProvider, out IntPtr phToken);
-
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         internal static extern bool LogonUser(String lpszUsername, String lpszDomain, IntPtr phPassword, int dwLogonType, int dwLogonProvider, out IntPtr phToken);
 
         [DllImport("kernel32.dll")]
@@ -208,28 +255,22 @@ namespace PowerShell.SimpleImpersonation
     #endregion Type Loading
 
     try {
-        $impersonation = if ($PSCmdlet.ParameterSetName -eq 'Credential') {
-            [PowerShell.SimpleImpersonation.Impersonation]::LogonUser(
-                $Credential.GetNetworkCredential().Domain,
-                $Credential.GetNetworkCredential().UserName,
-                $Credential.Password,
-                $LogonType
-            )
-        } else {
-            [PowerShell.SimpleImpersonation.Impersonation]::LogonUser(
-                $LogonUserArguments[0],  #### string    domain
-                $LogonUserArguments[1],  #### string    username
-                $LogonUserArguments[2],  #### string    password
-                $LogonUserArguments[3]   #### LogonType logonType
-            )
-        }
+        $impersonation = [PowerShell.SimpleImpersonation.Impersonation]::LogonUser(
+            $Credential.GetNetworkCredential().Domain,
+            $Credential.GetNetworkCredential().UserName,
+            $Credential.Password,
+            $LogonType
+        )
 
-        Write-Verbose "WindowsIdentity: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        Write-Verbose "Executing as WindowsIdentity: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        
         . $ScriptBlock
-
+        
+        Write-Verbose 'Execution completed.'
     } finally {
         if ($impersonation -is [IDisposable]) {
             $impersonation.Dispose()
+            Write-Verbose 'WindowsImpersonationContext restored.'
         }
     }
 }

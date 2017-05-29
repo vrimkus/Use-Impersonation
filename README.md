@@ -16,11 +16,13 @@ Use-Impersonation -Credential DOMAIN\user -LogonType Batch {
 Or
 
 ```powershell
-Use-Impersonation -LogonUserArguments ('DOMAIN', 'user', 'password', 'Interactive') { 
-    Write-Output "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+#### this will display a Get-Credential prompt for interactive usage
+Use-Impersonation ('DOMAIN\user', 'Interactive') { 
+    "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 }
-#### OR
-Use-Impersonation -ArgumentList ('DOMAIN', 'user', 'password', 'Interactive') { 
-    Write-Output "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+
+#### OR for clear text Parameter Signature 
+Use-Impersonation ('DOMAIN', 'user', 'password', 'Interactive') { 
+    "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 }
 ```
