@@ -8,34 +8,26 @@ function Use-Impersonation {
         which restores the context back to the calling Windows Principal.
 
         The function is meant to emulate a C# using block by automatically disposing the Impersonation object.
-    .PARAMETER ArgumentList
-        List of arguments to be passed to the Impersonation object.
-        
-        This parameter is designed to simulate the C# using syntax when using SimpleImpersonation.Impersonation.
-        This parameter is a member of the ArgumentList Parameter Set and can be used positionally.
     .PARAMETER Credential
         PSCredential object to be passed to the Impersonation object.
         
-        This parameter is a member of the Credential Parameter Set and can only be used as a named parameter.
+        This parameter is a member of the Credential parameter set and can be used positionally.
     .PARAMETER LogonType
         PowerShell.SimpleImpersonation.LogonType object to be passed to the Impersonation object. The argument specified
         to this parameter can be coerced from a string. 
         
-        This parameter is a member of the Credential Parameter Set and can only be used as a named parameter.
+        This parameter is a member of the Credential Parameter Set and can be used positionally.
     .PARAMETER ScriptBlock
         ScriptBlock object to be executed under the context of the supplied Windows Principal.
         
-        This parameter is a member of all Parameter Sets and can be used positionally.
+        This parameter is a member of all parameter sets and can be used positionally.
+    .PARAMETER LogonUserArguments
+        List of arguments to be passed to the Impersonation object.
+        
+        This parameter is designed to simulate the C# using syntax when using SimpleImpersonation.Impersonation.
+        This parameter is a member of the ArgumentList parameter set and must be passed as a named parameter.
     .EXAMPLE
-        PS C:\> Use-Impersonation ('DOMAIN', 'user', 'password', 'Interactive') { 
-            "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-        }
-
-        This example demonstrates supplying the required arguments, in the form of an array and Scriptblock,
-        as positional arguments. The code will perform an Interactive logon as user, DOMAIN\user, and then execute 
-        the specified ScriptBlock. The context will be restored to the caller Windows Principal following completion.
-    .EXAMPLE
-        PS C:\> Use-Impersonation -Credential DOMAIN\user -LogonType NewCredentials {     
+        PS C:\> Use-Impersonation -Credential DOMAIN\user -LogonType Batch {     
             sqlps
             $as = New-Object Microsoft.AnalysisServices.Server  
             $as.connect("server-name\instance-name")  
@@ -45,28 +37,38 @@ function Use-Impersonation {
         This example demonstrates the other parameter set by supplying a PSCredential, LogonType, and ScriptBlck.        
         The Credential and LogonType parameters in this example are passed as named arguments, which is required for the parameter set.
         The code will perform an NewCredentials logon as user, DOMAIN\user, and then execute the specified ScriptBlock.  
+    .EXAMPLE
+        PS C:\> Use-Impersonation -LogonUserArguments ('DOMAIN', 'user', 'password', 'Interactive') { 
+            "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+        }
+
+        This example demonstrates supplying the required arguments, in the form of an array and Scriptblock,
+        as positional arguments. The code will perform an Interactive logon as user, DOMAIN\user, and then execute 
+        the specified ScriptBlock. The context will be restored to the caller Windows Principal following completion.
+
+        The parameter also includes alias ArgumentList.
     #>
-    [CmdletBinding(DefaultParameterSetName = 'ArgumentList')]
+    [CmdletBinding(DefaultParameterSetName = 'Credential')]
     param (
-        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'ArgumentList')]
-        [object[]] $ArgumentList,
-
-        [Parameter(Mandatory = $true, ParameterSetName = 'Credential')]
-        [System.Management.Automation.Credential()]
-        [System.Management.Automation.PSCredential] $Credential,
-
-        [Parameter(Mandatory = $true, ParameterSetName = 'Credential')]
-        [object] $LogonType,
- 
         [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'Credential')]
-        [Parameter(Mandatory = $true, Position = 1, ParameterSetName = 'ArgumentList')]
-        [scriptblock] $ScriptBlock
+        [System.Management.Automation.PSCredential]
+        [System.Management.Automation.Credential()] $Credential,
+
+        [Parameter(Mandatory = $true, Position = 1, ParameterSetName = 'Credential')]
+        [object] $LogonType,
+
+        [Parameter(Mandatory = $true, Position = 2, ParameterSetName = 'Credential')]
+        [Parameter(Mandatory = $true, Position = 0, ParameterSetName = 'LogonUserArguments')]
+        [scriptblock] $ScriptBlock,
+
+        [Parameter(Mandatory = $true, ParameterSetName = 'LogonUserArguments')]
+        [Alias('ArgumentList')]
+        [array] $LogonUserArguments
     )
 
     if ($PSCmdlet.ParameterSetName -eq 'ArgumentList' -and $ArgumentList.Count -ne 4) {
         throw New-Object ArgumentException(
-            ('Invalid arguent specified. Signature: ' +
-            '(string Domain, string UserName, string Password, string LogonType)'), 
+            'Invalid arguent specified. Signature: (string Domain, string UserName, string Password, LogonType LogonType)', 
             'ArgumentList'
         )
     }
@@ -79,11 +81,8 @@ function Use-Impersonation {
 /*
 The MIT License (MIT)
 Copyright (c) 2013 Matt Johnson <mj1856@hotmail.com>
-
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 using System;
@@ -218,15 +217,15 @@ namespace PowerShell.SimpleImpersonation
             )
         } else {
             [PowerShell.SimpleImpersonation.Impersonation]::LogonUser(
-                $ArgumentList[0],  #### string    domain
-                $ArgumentList[1],  #### string    username
-                $ArgumentList[2],  #### string    password
-                $ArgumentList[3]   #### LogonType logonType
+                $LogonUserArguments[0],  #### string    domain
+                $LogonUserArguments[1],  #### string    username
+                $LogonUserArguments[2],  #### string    password
+                $LogonUserArguments[3]   #### LogonType logonType
             )
         }
 
         Write-Verbose "WindowsIdentity: $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
-        $ScriptBlock.Invoke()
+        . $ScriptBlock
 
     } finally {
         if ($impersonation -is [IDisposable]) {

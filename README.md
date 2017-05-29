@@ -4,7 +4,8 @@ Designed to emulate C# using syntax with impersonation.
 
 
 ```powershell
-Use-Impersonation -Credential DOMAIN\user -LogonType NewCredentials {     
+#### This option allows specifying a string to -Credential, which will display the credential prompt.
+Use-Impersonation -Credential DOMAIN\user -LogonType Batch {     
     sqlps
     $as = New-Object Microsoft.AnalysisServices.Server  
     $as.connect("server-name\instance-name")  
@@ -15,7 +16,11 @@ Use-Impersonation -Credential DOMAIN\user -LogonType NewCredentials {
 Or
 
 ```powershell
-Use-Impersonation ('DOMAIN', 'user', 'password', 'Interactive') { 
+Use-Impersonation -LogonUserArguments ('DOMAIN', 'user', 'password', 'Interactive') { 
+    Write-Output "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+}
+#### OR
+Use-Impersonation -ArgumentList ('DOMAIN', 'user', 'password', 'Interactive') { 
     Write-Output "You are now impersonating user $([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)"
 }
 ```
